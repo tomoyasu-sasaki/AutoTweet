@@ -14,7 +14,7 @@ class Command(BaseCommand):
     help = '指定されたテキストと画像を使って自動投稿を作成する'
 
     def add_arguments(self, parser):
-        parser.add_argument('--text', type=str, default='#AI画像', help='投稿するテキスト')
+        parser.add_argument('--text', type=str, default='#投稿テキスト', help='投稿するテキスト')
         parser.add_argument('--image-dir', type=str, default='auto_post_images', help='画像が保存されているディレクトリ（mediaディレクトリからの相対パス）')
         parser.add_argument('--post-now', action='store_true', help='すぐに投稿する（指定しない場合はスケジュールのみ作成）')
         parser.add_argument('--interval', type=int, default=90, help='次回投稿までの間隔（分）')

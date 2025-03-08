@@ -225,13 +225,13 @@ source .venv/bin/activate
 
 # 自動投稿コマンドの実行（スケジュール作成のみ）
 cd auto_tweet_project
-python manage.py auto_post --text "#AI画像"
+python manage.py auto_post --text "投稿テキスト"
 
 # 即時投稿
-python manage.py auto_post --text "#AI画像" --post-now
+python manage.py auto_post --text "投稿テキスト" --post-now
 
 # ピーク時間帯のフラグを付けて実行
-python manage.py auto_post --text "#AI画像" --post-now --peak-hour
+python manage.py auto_post --text "投稿テキスト" --post-now --peak-hour
 
 # スケジュールされたツイートの処理
 python manage.py process_tweets
