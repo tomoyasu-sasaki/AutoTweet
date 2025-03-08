@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }} | {{ block.super }}{% endblock %}
+
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+    <div class="row">
+        <div class="col-md-8 mx-auto">
+            <div class="card">
+                <div class="card-body">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label for="{{ form.content.id_for_label }}" class="form-label">{{ form.content.label }}</label>
+                            {{ form.content }}
+                            {% if form.content.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {{ form.content.errors }}
+                                </div>
+                            {% endif %}
+                            <div class="form-text">
+                                <span id="char-count">0</span>/280文字
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="{{ form.image.id_for_label }}" class="form-label">{{ form.image.label }}</label>
+                            {{ form.image }}
+                            {% if form.image.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {{ form.image.errors }}
+                                </div>
+                            {% endif %}
+                            <div class="form-text">JPG、PNG、GIF形式（5MB以下）</div>
+                            
+                            {% if tweet and tweet.image %}
+                                <div class="mt-2">
+                                    <p class="mb-1">現在の画像:</p>
+                                    <img src="{{ tweet.image.url }}" alt="投稿画像" class="img-thumbnail" style="max-height: 200px;">
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="{{ form.scheduled_time.id_for_label }}" class="form-label">{{ form.scheduled_time.label }}</label>
+                            {{ form.scheduled_time }}
+                            {% if form.scheduled_time.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {{ form.scheduled_time.errors }}
+                                </div>
+                            {% endif %}
+                            <div class="form-text">予定時刻を設定してください。</div>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <button type="submit" class="btn btn-primary">保存</button>
+                            <a href="{% url 'x_scheduler:schedule_list' %}" class="btn btn-secondary">キャンセル</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 文字数カウンター
+        const contentField = document.getElementById('{{ form.content.id_for_label }}');
+        const charCount = document.getElementById('char-count');
+        
+        function updateCharCount() {
+            const count = contentField.value.length;
+            charCount.textContent = count;
+            
+            if (count > 280) {
+                charCount.classList.add('text-danger');
+            } else {
+                charCount.classList.remove('text-danger');
+            }
+        }
+        
+        contentField.addEventListener('input', updateCharCount);
+        updateCharCount(); // 初期表示時
+        
+        // datetime-localフィールドのスタイル調整
+        const datetimeField = document.getElementById('{{ form.scheduled_time.id_for_label }}');
+        datetimeField.classList.add('form-control');
+
+        // 画像プレビュー
+        const imageInput = document.getElementById('{{ form.image.id_for_label }}');
+        imageInput.addEventListener('change', function() {
+            const file = this.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    // 既存のプレビューを削除
+                    const existingPreview = document.getElementById('image-preview-container');
+                    if (existingPreview) {
+                        existingPreview.remove();
+                    }
+                    
+                    // 新しいプレビューを作成
+                    const previewContainer = document.createElement('div');
+                    previewContainer.id = 'image-preview-container';
+                    previewContainer.className = 'mt-2';
+                    
+                    const previewLabel = document.createElement('p');
+                    previewLabel.className = 'mb-1';
+                    previewLabel.textContent = 'プレビュー:';
+                    
+                    const previewImg = document.createElement('img');
+                    previewImg.src = e.target.result;
+                    previewImg.alt = 'プレビュー';
+                    previewImg.className = 'img-thumbnail';
+                    previewImg.style.maxHeight = '200px';
+                    
+                    previewContainer.appendChild(previewLabel);
+                    previewContainer.appendChild(previewImg);
+                    
+                    // プレビューをフォームの下に追加
+                    imageInput.parentNode.appendChild(previewContainer);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    });
+</script>
+{% endblock %} 

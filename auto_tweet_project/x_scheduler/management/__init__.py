@@ -1,0 +1,1 @@
+# managementパッケージ初期化 

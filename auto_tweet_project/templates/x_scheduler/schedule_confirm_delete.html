@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+
+{% block title %}投稿スケジュール削除 | {{ block.super }}{% endblock %}
+
+{% block page_title %}投稿スケジュール削除{% endblock %}
+
+{% block content %}
+    <div class="row">
+        <div class="col-md-8 mx-auto">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title text-danger">以下の投稿スケジュールを削除してもよろしいですか？</h5>
+                    
+                    <div class="alert alert-warning my-4">
+                        <p><strong>予定時刻:</strong> {{ tweet.scheduled_time|date:"Y年m月d日 H:i" }}</p>
+                        <p><strong>投稿内容:</strong> {{ tweet.content }}</p>
+                        <p><strong>ステータス:</strong> {{ tweet.get_status_display }}</p>
+                        
+                        {% if tweet.image %}
+                            <div class="mt-3">
+                                <p><strong>添付画像:</strong></p>
+                                <img src="{{ tweet.image.url }}" alt="投稿画像" class="img-thumbnail" style="max-height: 200px;">
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'x_scheduler:schedule_list' %}" class="btn btn-secondary">キャンセル</a>
+                            <button type="submit" class="btn btn-danger">削除する</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %} 
