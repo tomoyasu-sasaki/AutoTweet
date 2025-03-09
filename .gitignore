@@ -1,0 +1,78 @@
+# Python関連
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+.venv/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Djangoプロジェクト関連
+*.log
+*.pot
+*.pyc
+db.sqlite3
+media/
+static/collected/
+logs/
+
+# macOS関連
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# エディタ関連
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# 環境設定
+.env
+*.env
+
+# ローカル実行関連
+*.pid
+*.lock
+.*.lock
+auto_tweet_last_run.txt
+process_tweets_last_run.txt
+.auto_tweet.lock
+.process_tweets.lock
+*.tmp
+
+# バックアップファイル
+*.bak
+*~
+
+# バージョン管理関連
+pmset_version/wake_schedule.txt
+pmset_version/process_wake_schedule.txt
+
+*.txt
+!requirements.txt
+
+
+# launchd設定ファイル（実際の設定ファイルはgitignore、テンプレートはコミット）
+launchd_version/com.user.auto_tweet.plist
+launchd_version/com.user.process_tweets.plist
+# テンプレートファイルはコミットするのでignoreしない
+# !launchd_version/com.user.auto_tweet.plist.template
+# !launchd_version/com.user.process_tweets.plist.template
