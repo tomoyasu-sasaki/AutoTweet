@@ -122,7 +122,7 @@ CURRENT_HOUR=$(date +%H)
 log_message "処理開始時刻: ${CURRENT_TIME_STR}"
 
 # auto_tweet_projectディレクトリに移動
-cd ../auto_tweet_project
+cd auto_tweet_project
 log_message "auto_tweet_projectディレクトリに移動しました"
 
 # Pythonコードにすべての判断を委ねるためのオプション設定

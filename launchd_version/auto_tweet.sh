@@ -139,7 +139,7 @@ if [ "$SHOULD_RUN" = true ]; then
     log_message "投稿テキスト: ${TEXT}"
 
     # 自動投稿コマンドを実行
-    cd ../auto_tweet_project
+    cd auto_tweet_project
     log_message "auto_tweet_projectディレクトリに移動しました"
 
     # ピーク時間帯のフラグを設定
