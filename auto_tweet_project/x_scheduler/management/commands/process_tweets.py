@@ -4,10 +4,20 @@ from django.conf import settings
 import logging
 import time
 import datetime
+import os
 from x_scheduler.models import TweetSchedule, DailyPostCounter, SystemSetting
 from django.utils import timezone
 
+# 親プロセスのPIDを取得（環境変数から）
+PARENT_PID = os.getenv('SCRIPT_PID', '0')
+
+# ロガーの設定
 logger = logging.getLogger('x_scheduler')
+formatter = logging.Formatter(f'%(asctime)s: [PID:{PARENT_PID}] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+logger.handlers = [handler]  # 既存のハンドラをクリアして新しいハンドラのみを設定
+logger.propagate = False  # 重複ログを防ぐ
 
 class Command(BaseCommand):
     help = '待機中の予定時刻を過ぎたツイートを投稿する'
@@ -158,11 +168,6 @@ class Command(BaseCommand):
                     counter.increment_count()
                 logger.info(f"投稿カウントを更新しました。現在の投稿数: {counter.post_count}/{counter.max_daily_posts}")
             
-            self.stdout.write(
-                self.style.SUCCESS(f'{processed_count}件のスケジュールされたツイートを処理しました。')
-            )
+            logger.info(f'{processed_count}件のスケジュールされたツイートを処理しました。')
         except Exception as e:
-            logger.error(f"ツイート処理中にエラーが発生しました: {str(e)}")
-            self.stdout.write(
-                self.style.ERROR(f'エラーが発生しました: {str(e)}')
-            ) 
+            logger.error(f"ツイート処理中にエラーが発生しました: {str(e)}") 

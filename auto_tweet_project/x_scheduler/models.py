@@ -68,7 +68,7 @@ class DailyPostCounter(models.Model):
     
     date = models.DateField('日付', unique=True)
     post_count = models.IntegerField('投稿回数', default=0)
-    max_daily_posts = models.IntegerField('1日の最大投稿数', default=15)
+    max_daily_posts = models.IntegerField('1日の最大投稿数', default=16)
     created_at = models.DateTimeField('作成日時', auto_now_add=True)
     updated_at = models.DateTimeField('更新日時', auto_now=True)
     
@@ -86,7 +86,7 @@ class DailyPostCounter(models.Model):
         today = timezone.now().date()
         counter, created = cls.objects.get_or_create(
             date=today,
-            defaults={'post_count': 0, 'max_daily_posts': 15}
+            defaults={'post_count': 0, 'max_daily_posts': 16}
         )
         return counter
     
