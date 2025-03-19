@@ -135,7 +135,7 @@ fi
 # 実行条件を満たす場合のみ処理を実行
 if [ "$SHOULD_RUN" = true ]; then
     # 投稿テキスト
-    TEXT="#AI画像 #AIグラビア #AI美女 #AIアイドル #AIphoto #AIphotograpy #AI女子 #AI彼女 #AIart #美女 #美人 #美少女 #aigirls"
+    TEXT="#投稿テキスト"
     log_message "投稿テキスト: ${TEXT}"
 
     # 自動投稿コマンドを実行
