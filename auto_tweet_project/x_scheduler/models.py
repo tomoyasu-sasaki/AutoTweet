@@ -3,9 +3,17 @@ from django.utils import timezone
 import uuid
 import os
 import logging
+import pytz
 
 # ロガーの設定
 logger = logging.getLogger(__name__)
+
+# 日本のタイムゾーンを設定
+JST = pytz.timezone('Asia/Tokyo')
+
+def get_jst_now():
+    """現在の日本時間を取得"""
+    return timezone.localtime(timezone.now(), JST)
 
 def get_image_path(instance, filename):
     """画像ファイルの保存パスを生成"""
@@ -83,11 +91,13 @@ class DailyPostCounter(models.Model):
     @classmethod
     def get_today_counter(cls):
         """本日のカウンターを取得または作成"""
-        today = timezone.now().date()
+        today = get_jst_now().date()
         counter, created = cls.objects.get_or_create(
             date=today,
             defaults={'post_count': 0, 'max_daily_posts': 16}
         )
+        if created:
+            logger.info(f"新しい日次カウンターを作成しました: {today}")
         return counter
     
     @classmethod
@@ -156,16 +166,17 @@ class SystemSetting(models.Model):
     @classmethod
     def is_api_test_done_today(cls):
         """本日のAPI接続テストが完了しているかを確認"""
-        today = timezone.now().date().isoformat()
+        today = get_jst_now().date().isoformat()
         last_test_date = cls.get_value('api_test_last_date')
         return last_test_date == today
     
     @classmethod
     def mark_api_test_done(cls, peak=False):
         """API接続テストを実行済みとしてマーク"""
-        today = timezone.now().date().isoformat()
+        now = get_jst_now()
+        today = now.date().isoformat()
         # 現在の時間帯も記録（朝/昼/夜）
-        hour = timezone.now().hour
+        hour = now.hour
         time_of_day = "morning" if 5 <= hour < 12 else "afternoon" if 12 <= hour < 18 else "evening"
         cls.set_value('api_test_last_date', today)
         cls.set_value('api_test_last_time_of_day', time_of_day)
@@ -179,7 +190,8 @@ class SystemSetting(models.Model):
             return False
             
         # 現在の時間帯を判定
-        hour = timezone.now().hour
+        now = get_jst_now()
+        hour = now.hour
         current_time_of_day = "morning" if 5 <= hour < 12 else "afternoon" if 12 <= hour < 18 else "evening"
         
         # 最後にテストした時間帯を取得
@@ -191,7 +203,7 @@ class SystemSetting(models.Model):
     @classmethod
     def get_last_image_index(cls):
         """最後に使用した画像のインデックスを取得"""
-        return int(cls.get_value('last_image_index', '-1'))
+        return int(cls.get_value('last_image_index', '84'))
     
     @classmethod
     def update_last_image_index(cls, index):
