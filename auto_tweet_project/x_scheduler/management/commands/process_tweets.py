@@ -1,173 +1,238 @@
-from django.core.management.base import BaseCommand
-from x_scheduler.utils import process_scheduled_tweets, test_api_connection
+from x_scheduler.utils import process_scheduled_tweets, TwitterAPIClient
 from django.conf import settings
 import logging
 import time
-import datetime
-import os
+# import datetime # 未使用
+# import os # 未使用
 from x_scheduler.models import TweetSchedule, DailyPostCounter, SystemSetting
 from django.utils import timezone
-
-# 親プロセスのPIDを取得（環境変数から）
-PARENT_PID = os.getenv('SCRIPT_PID', '0')
+from django.core.management.base import BaseCommand
 
 # ロガーの設定
-logger = logging.getLogger('x_scheduler')
-formatter = logging.Formatter(f'%(asctime)s: [PID:{PARENT_PID}] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-handler = logging.StreamHandler()
-handler.setFormatter(formatter)
-logger.handlers = [handler]  # 既存のハンドラをクリアして新しいハンドラのみを設定
-logger.propagate = False  # 重複ログを防ぐ
+logger = logging.getLogger(__name__)
+
 
 class Command(BaseCommand):
-    help = '待機中の予定時刻を過ぎたツイートを投稿する'
+    help = "待機中の予定時刻を過ぎたツイートを投稿する"
 
     def add_arguments(self, parser):
-        parser.add_argument('--skip-api-test', action='store_true', help='API接続テストをスキップする')
-        parser.add_argument('--abort-on-error', action='store_true', help='API接続テストに失敗した場合に処理を中止する')
-        parser.add_argument('--max-retries', type=int, default=3, help='レート制限エラー時の最大リトライ回数')
-        parser.add_argument('--peak-hour', action='store_true', help='ピーク時間帯（6時、12時、18時）に実行する場合のフラグ')
-        parser.add_argument('--force-api-test', action='store_true', help='API接続テストを強制的に実行する')
-        parser.add_argument('--max-posts', type=int, default=None, help='この実行で処理する最大投稿数')
+        parser.add_argument(
+            "--skip-api-test", action="store_true", help="API接続テストをスキップする"
+        )
+        parser.add_argument(
+            "--abort-on-error",
+            action="store_true",
+            help="API接続テストに失敗した場合に処理を中止する",
+        )
+        parser.add_argument(
+            "--max-retries",
+            type=int,
+            default=3,
+            help="レート制限エラー時の最大リトライ回数",
+        )
+        parser.add_argument(
+            "--peak-hour",
+            action="store_true",
+            help="ピーク時間帯（6時、12時、18時）に実行する場合のフラグ",
+        )
+        parser.add_argument(
+            "--force-api-test",
+            action="store_true",
+            help="API接続テストを強制的に実行する",
+        )
+        parser.add_argument(
+            "--max-posts", type=int, default=None, help="この実行で処理する最大投稿数"
+        )
+
+    def _perform_api_connection_test(self, options, api_client):
+        """API接続テストを実行し、成功/失敗を返す。APIクライアントを受け取るように変更。"""
+        max_retries = options['max_retries']
+        abort_on_error = options['abort_on_error']
+        # peak_hour = options['peak_hour'] # 未使用のためコメントアウト
+        retry_count = 0
+        
+        logger.info("API接続テストを実行します。")
+        while retry_count <= max_retries:
+            try:
+                # 修正: 引数で受け取った api_client のメソッドを使用
+                test_result = api_client.test_connection()
+                if test_result["success"]:
+                    logger.info("X APIに正常に接続できました。")
+                    today_str = timezone.now().date().isoformat()
+                    hour = timezone.now().hour
+                    time_of_day = (
+                        "morning"
+                        if 5 <= hour < 12
+                        else "afternoon" if 12 <= hour < 18 else "evening"
+                    )
+                    SystemSetting.set_value("api_test_last_date", today_str)
+                    SystemSetting.set_value("api_test_last_time_of_day", time_of_day)
+                    logger.info(
+                        f"API接続テスト実行済みとしてマーク: {today_str} ({time_of_day})"
+                    )
+                    return True  # 接続成功
+                else:
+                    # エラーメッセージは test_connection 内でログ出力されるはず
+                    raise Exception(test_result["error"])  # 再試行のために例外を発生
+            except Exception as e:
+                retry_count += 1
+                error_msg = str(e)
+                logger.error(
+                    f"X APIへの接続テスト試行に失敗 ({retry_count}/{max_retries}): {error_msg}"
+                )
+
+                # test_connection の戻り値だけではレートリミットか判断できないため、エラーメッセージで判断
+                # TODO: test_connection の戻り値に is_rate_limit を含める改善検討
+                if "429" in error_msg or "Rate limit" in error_msg:  # 簡易的な判定
+                    wait_time = min(60 * retry_count, 300)  # 待機時間
+                    logger.info(f"レート制限の可能性。{wait_time}秒間待機します...")
+                    time.sleep(wait_time)
+                elif retry_count > max_retries:
+                    logger.error(
+                        f"最大再試行回数({max_retries}回)に達しました。API接続テストを中止します。"
+                    )
+                    break  # ループを抜ける (接続失敗)
+                else:
+                    # その他のエラーの場合、少し待機して再試行
+                    time.sleep(5 * retry_count)
+
+        # ループ終了後 (失敗時)
+        if abort_on_error:
+            logger.error(
+                "API接続テストに失敗し、abort-on-errorが指定されているため処理を中止します。"
+            )
+            return False  # 接続失敗 (処理中止)
+        else:
+            logger.warning("API接続テストに失敗しましたが、処理を続行します。")
+            return True  # 接続失敗だが処理は続行
 
     def handle(self, *args, **options):
         try:
             skip_api_test = options['skip_api_test']
-            abort_on_error = options['abort_on_error']
-            max_retries = options['max_retries']
+            # abort_on_error = options['abort_on_error'] # _perform_api_connection_test に渡されるが、このスコープでは未使用
             force_api_test = options['force_api_test']
-            peak_hour = options['peak_hour']
+            peak_hour = options['peak_hour'] # APIテスト判定ロジックで必要
+            # max_posts = options.get('max_posts') # 現状未使用のためコメントアウト
             
-            # APIキーの確認
-            logger.info(f"APIキー: {settings.X_API_KEY[:5]}... (最初の5文字のみ表示)")
-            logger.info(f"APIシークレット: {settings.X_API_SECRET[:5]}... (最初の5文字のみ表示)")
-            logger.info(f"アクセストークン: {settings.X_ACCESS_TOKEN[:5]}... (最初の5文字のみ表示)")
-            
-            # 先に処理対象のツイート数を確認
+            # APIクライアントをインスタンス化
+            api_client = TwitterAPIClient()
+            if not api_client.api_v1 or not api_client.client_v2:
+                logger.error(
+                    "APIクライアントの初期化に失敗しました。処理を中断します。"
+                )
+                return
+
+            # --- APIキーログ出力 (削除) ---
+            # logger.info(f"APIキー: {settings.X_API_KEY[:5]}... (最初の5文字のみ表示)")
+
+            # --- API接続テストの要否判定 --- (変更なし)
             now = timezone.now()
+            today_str = now.date().isoformat()
+            hour = now.hour
+            current_time_of_day = (
+                "morning"
+                if 5 <= hour < 12
+                else "afternoon" if 12 <= hour < 18 else "evening"
+            )
             pending_tweets = TweetSchedule.objects.filter(
-                status='pending',
-                scheduled_time__lte=now
+                status="pending", scheduled_time__lte=now
             )
             pending_count = pending_tweets.count()
-            logger.info(f"処理対象のツイート数: {pending_count}")
-            
-            # ツイートがなく、強制実行オプションがなければAPI接続テストをスキップ
+            logger.info(f"処理対象のツイート数(テスト判定前): {pending_count}")
             if pending_count == 0 and not force_api_test:
-                logger.info("処理対象のツイートがないため、API接続テストをスキップします")
+                logger.info(
+                    "処理対象ツイートがなく、強制実行もないためAPI接続テストをスキップします"
+                )
                 skip_api_test = True
-            
-            # 今日すでにAPI接続テストを行ったかチェック（DBから）
-            already_tested_today = SystemSetting.is_api_test_done_today()
-            peak_hour_tested = SystemSetting.is_peak_hour_tested_today() if already_tested_today else False
-            
+            last_test_date = SystemSetting.get_value("api_test_last_date")
+            already_tested_today = last_test_date == today_str
+            last_time_of_day = SystemSetting.get_value("api_test_last_time_of_day", "")
+            peak_hour_tested = (
+                already_tested_today and current_time_of_day == last_time_of_day
+            )
             if already_tested_today:
-                logger.info(f"本日はすでにAPI接続テストを実施済みです。ピーク時間帯テスト状況: {peak_hour_tested}")
-            
-            # 以下の場合に接続テストをスキップ:
-            # 1. 明示的にスキップが指定されている
-            # 2. 今日すでにテスト済みで、現在がピーク時間でない、またはピーク時間でも既にテスト済み
-            should_skip_test = skip_api_test or (already_tested_today and (not peak_hour or peak_hour_tested))
-            
-            # API接続テスト
-            api_connected = True
+                logger.info(
+                    f"本日はすでにAPI接続テストを実施済みです。最後にテストした時間帯: {last_time_of_day}"
+                )
+            should_skip_test = skip_api_test or (
+                already_tested_today and (not peak_hour or peak_hour_tested)
+            )
+
+            # --- API接続テスト実行 --- (変更: api_client を渡す)
             if not should_skip_test:
-                logger.info("API接続テストを実行します。(/2/users/me エンドポイントは24時間に25リクエストの制限があります)")
-                retry_count = 0
-                while retry_count <= max_retries:
-                    try:
-                        # API接続テスト関数を使用
-                        test_result = test_api_connection()
-                        
-                        if test_result["success"]:
-                            logger.info("X APIに正常に接続できました。")
-                            
-                            # 接続テスト成功をDBに記録（ピーク時間帯かどうかも記録）
-                            SystemSetting.mark_api_test_done(peak=peak_hour)
-                            
-                            break
-                        else:
-                            raise Exception(test_result["error"])
-                    except Exception as e:
-                        retry_count += 1
-                        error_msg = str(e)
-                        logger.error(f"X APIへの接続テストに失敗しました ({retry_count}/{max_retries}): {error_msg}")
-                        
-                        # レート制限エラーの場合
-                        if "429 Too Many Requests" in error_msg:
-                            wait_time = min(60 * retry_count, 300)  # 再試行ごとに待機時間を長くする（最大5分）
-                            logger.info(f"レート制限に達しました。{wait_time}秒間待機します...")
-                            time.sleep(wait_time)
-                        elif retry_count >= max_retries:
-                            logger.error(f"最大再試行回数に達しました。API接続テストを中止します。")
-                            api_connected = False
-                            if abort_on_error:
-                                logger.error("処理を中止します。")
-                                return
-                            break
-                        else:
-                            # その他のエラーの場合は短い待機時間
-                            time.sleep(5)
+                if not self._perform_api_connection_test(options, api_client):
+                    return  # テスト失敗 and abort の場合
             else:
                 logger.info("API接続テストはスキップします。")
-            
-            # 接続テストに失敗し、かつ中断オプションが指定されている場合
-            if not api_connected and abort_on_error:
-                logger.error("API接続テストに失敗したため、処理を中止します。")
-                return
-            
-            # 投稿数制限のチェック
-            counter = DailyPostCounter.get_or_create_today()
-            if counter.limit_reached:
-                logger.warning(f"本日の投稿上限（{counter.max_daily_posts}）に達しています。残り投稿数: {counter.remaining_posts}")
+
+            # --- 投稿数制限チェック --- (変更なし)
+            counter = DailyPostCounter.get_today_counter()
+            if counter.is_limit_reached:
+                logger.warning(
+                    f"本日の投稿上限（{settings.MAX_DAILY_POSTS_PER_USER}）に達しています。残り投稿数: {counter.remaining_posts}"
+                )
             else:
-                logger.info(f"本日の投稿数: {counter.post_count}/{counter.max_daily_posts}, 残り: {counter.remaining_posts}")
-            
-            # ツイート処理
+                logger.info(
+                    f"本日の投稿数: {counter.post_count}/{settings.MAX_DAILY_POSTS_PER_USER}, 残り: {counter.remaining_posts}"
+                )
+
+            # --- ツイート処理実行 ---
             logger.info("スケジュールされたツイートを処理します")
-            
-            # 状態が「保留中」のスケジュールを取得
-            pending_schedules = TweetSchedule.objects.filter(
-                status='pending',
-                scheduled_time__lte=timezone.now()
-            ).order_by('scheduled_time')
-            
-            if not pending_schedules:
-                logger.info("処理対象のツイートがありません。")
-                return
-            
-            logger.info(f"処理対象のツイート数: {pending_schedules.count()}")
-            
-            # 最大投稿数の制限
-            max_posts = options.get('max_posts')
-            if max_posts is not None and max_posts > 0:
-                logger.info(f"最大投稿数が設定されています: {max_posts}")
-                if pending_schedules.count() > max_posts:
-                    logger.info(f"処理対象を {max_posts} 件に制限します")
-                    pending_schedules = pending_schedules[:max_posts]
-            
-            # 日次投稿制限のチェック
+
+            # process_scheduled_tweets は内部で再度クエリ＆APIクライアント初期化を行うため、
+            # ここでの追加のフィルタリングやAPIクライアントの受け渡しは不要。
+            # ただし、投稿制限の事前チェックは有効。
             available_posts = counter.remaining_posts
-            if max_posts is not None:
-                available_posts = min(available_posts, max_posts)
-            
             if available_posts <= 0:
-                logger.warning("本日の投稿可能数が0のため、処理をスキップします。")
+                logger.warning(
+                    "本日の投稿可能数が0のため、ツイート処理をスキップします。"
+                )
                 return
-            
-            if pending_schedules.count() > available_posts:
-                logger.info(f"制限により処理対象を {available_posts} 件に制限します")
-                pending_schedules = pending_schedules[:available_posts]
-            
-            # 残りの処理続行
+            else:
+                logger.info(f"本日の残り投稿可能数: {available_posts}")
+                # process_scheduled_tweets 側で最終的な投稿数制限がかかることに注意。
+
+            # utils.process_scheduled_tweets を呼び出す (これは内部で TwitterAPIClient を使う)
             processed_count = process_scheduled_tweets()
-            
-            # 投稿カウントを更新
+
+            # 投稿カウントを更新 (utils側でやったので不要？ いや、DailyPostCounter の更新はこちらでやるべきか)
+            # → DailyPostCounter の更新は utils 側ではなく、呼び出し側 (コマンド) の責務とする方が良い。
+            #   utils.process_scheduled_tweets は純粋にツイート処理に専念する。
+            #   ただし、現状の utils.process_scheduled_tweets は成功カウントを返すだけなので、
+            #   どのツイートが成功したかの情報がない。これを改善する必要がある。
+            #
+            #   一旦、現状の動作を維持し、戻り値の件数だけカウントアップする。
+            #   (リファクタリングの余地あり)
             if processed_count > 0:
-                for _ in range(processed_count):
+                logger.info(
+                    f"utils.process_scheduled_tweets が {processed_count} 件の処理を報告しました。カウンターを更新します。"
+                )
+                # DailyPostCounter を最新の状態にする
+                counter = DailyPostCounter.get_today_counter()
+                initial_count = counter.post_count
+                target_count = min(
+                    initial_count + processed_count, settings.MAX_DAILY_POSTS_PER_USER
+                )
+                incremented = 0
+                # 実際にカウントを増やす (上限を超えないように)
+                for _ in range(target_count - initial_count):
                     counter.increment_count()
-                logger.info(f"投稿カウントを更新しました。現在の投稿数: {counter.post_count}/{counter.max_daily_posts}")
-            
-            logger.info(f'{processed_count}件のスケジュールされたツイートを処理しました。')
+                    incremented += 1
+
+                if incremented > 0:
+                    # counter = DailyPostCounter.get_today_counter() # DBから再取得して確認
+                    logger.info(
+                        f"投稿カウンターを {incremented} 件増加させました。現在の投稿数: {counter.post_count}/{settings.MAX_DAILY_POSTS_PER_USER}"
+                    )
+                else:
+                    logger.info(
+                        "投稿カウンターの増加はありませんでした（既に上限 or 処理件数0）。"
+                    )
+
+            logger.info(
+                f"{processed_count}件のスケジュールされたツイート処理が試行されました。"
+            )  # ログメッセージ変更
         except Exception as e:
-            logger.error(f"ツイート処理中にエラーが発生しました: {str(e)}") 
+            logger.exception(
+                f"ツイート処理コマンド全体で予期せぬエラーが発生しました: {str(e)}"
+            )
