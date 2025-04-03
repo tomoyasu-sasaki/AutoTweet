@@ -8,20 +8,20 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>cd /path/to/auto_tweet && ./process_tweets.sh</string>
+        <string>cd ${PROJECT_DIR} &amp;&amp; ./scripts/launchd_version/process_tweets.sh</string>
     </array>
     <key>StartInterval</key>
     <integer>600</integer>
     <key>StandardOutPath</key>
-    <string>/path/to/auto_tweet/logs/process_tweets/process_tweets.log</string>
+    <string>${PROJECT_DIR}/scripts/logs/launchd_version/process_tweets/process_tweets.log</string>
     <key>StandardErrorPath</key>
-    <string>/path/to/auto_tweet/logs/process_tweets/error.log</string>
+    <string>${PROJECT_DIR}/scripts/logs/launchd_version/process_tweets/error.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/path/to/auto_tweet/.venv/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-        <key>PYTHONPATH</key>
-        <string>/path/to/auto_tweet/.venv/lib/python3.12/site-packages</string>
+        <string>${VENV_BIN_PATH}:${SYSTEM_PATH}</string>
     </dict>
+    <key>WorkingDirectory</key>
+    <string>${PROJECT_DIR}</string>
 </dict>
 </plist> 

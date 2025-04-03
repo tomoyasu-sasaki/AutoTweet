@@ -71,8 +71,8 @@ pmset_version/process_wake_schedule.txt
 
 
 # launchd設定ファイル（実際の設定ファイルはgitignore、テンプレートはコミット）
-launchd_version/com.user.auto_tweet.plist
-launchd_version/com.user.process_tweets.plist
+scripts/launchd_version/com.user.auto_tweet.plist
+scripts/launchd_version/com.user.process_tweets.plist
 # テンプレートファイルはコミットするのでignoreしない
 # !launchd_version/com.user.auto_tweet.plist.template
 # !launchd_version/com.user.process_tweets.plist.template

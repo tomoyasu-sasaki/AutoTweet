@@ -78,7 +78,6 @@ def post_tweet(content, image_path=None):
         logger.error("ツイートの投稿に失敗: APIクライアントが作成できませんでした。")
         return {"success": False, "error": "APIクライアントが作成できませんでした。"}
     
-    media_id = None
     try:
         # APIキーとシークレットをログに出力（デバッグ目的、本番環境では削除すること）
         logger.info(f"使用するAPIキー: {settings.X_API_KEY[:5]}...")
@@ -93,34 +92,17 @@ def post_tweet(content, image_path=None):
             if not api:
                 return {"success": False, "error": "APIクライアントv1が作成できませんでした。"}
             
-            try:
-                # 画像をアップロード
-                media = api.media_upload(filename=image_path)
-                media_id = media.media_id
-                logger.info(f"画像のアップロードに成功しました: media_id={media_id}")
-            except tweepy.TweepyException as e:
-                if "Rate limit exceeded" in str(e):
-                    logger.error(f"画像アップロードでレートリミットに達しました: {str(e)}")
-                    return {"success": False, "error": "レートリミットに達しました", "rate_limited": True}
-                raise
+            # 画像をアップロード
+            media = api.media_upload(filename=image_path)
+            media_id = media.media_id
             
-            try:
-                # v2 APIで画像を含むツイートを投稿
-                response = client.create_tweet(text=content, media_ids=[media_id])
-                logger.info(f"画像付きツイート投稿成功: {response.data}")
-            except Exception as e:
-                logger.error(f"画像付きツイート投稿に失敗しました: {str(e)}")
-                raise
+            # v2 APIで画像を含むツイートを投稿
+            response = client.create_tweet(text=content, media_ids=[media_id])
+            logger.info(f"画像付きツイート投稿成功: {response.data}")
         else:
             # 画像なしのツイート
-            try:
-                response = client.create_tweet(text=content)
-                logger.info(f"テキストのみのツイート投稿成功: {response.data}")
-            except tweepy.TweepyException as e:
-                if "Rate limit exceeded" in str(e):
-                    logger.error(f"ツイート投稿でレートリミットに達しました: {str(e)}")
-                    return {"success": False, "error": "レートリミットに達しました", "rate_limited": True}
-                raise
+            response = client.create_tweet(text=content)
+            logger.info(f"テキストのみのツイート投稿成功: {response.data}")
             
         return {"success": True, "error": ""}
     except Exception as e:

@@ -1,1 +1,0 @@
-pmset_version/auto_tweet.sh

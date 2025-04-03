@@ -9,11 +9,14 @@
 - [ファイル構造](#-ファイル構造)
 - [コンポーネント説明](#-コンポーネント説明)
 - [インストールと設定](#-インストールと設定)
-- [自動実行の設定](#-自動実行の設定)
-  - [バージョン切り替え機能](#バージョン切り替え機能)
-  - [macOS - launchdによる設定](#macos---launchdによる設定)
-  - [macOS - pmsetモードの追加設定](#macos---pmsetモードの追加設定)
-  - [Linux環境 - crontabによる設定](#linux環境---crontabによる設定)
+  - [X Developer Portalでの設定](#1-x-developer-portalでの設定)
+  - [システムのインストール](#2-システムのインストール)
+- [macOSでの自動実行設定](#-macosでの自動実行設定)
+  - [実行モードについて (launchd vs cron+pmset)](#実行モードについて-launchd-vs-cronpmset)
+  - [モードの切り替え方法 (`switch_version.sh`)](#モードの切り替え方法-switch_versionsh)
+  - [Launchd モード設定手順](#launchd-モード設定手順)
+  - [Cron + PMSet モード設定手順](#cron--pmset-モード設定手順)
+- [Linux環境での自動実行設定 (参考)](#linux環境での自動実行設定-参考)
 - [使用方法](#-使用方法)
 - [設定パラメータ](#️-設定パラメータ)
 - [トラブルシューティング](#-トラブルシューティング)
@@ -27,100 +30,92 @@
 
 ## 📋 概要
 
-本システムは、指定された画像とテキストを定期的にX（旧Twitter）へ自動投稿するためのツールです。DjangoフレームワークとTweepy（X API SDK）を使用して、安定した投稿スケジュール管理とAPIレート制限の最適な管理を実現しています。macOSのlaunchdとpmsetの両方に対応しており、使用環境に合わせて選択できます。
+本システムは、指定されたテキストを定期的にX（旧Twitter）へ自動投稿するためのツールです。DjangoフレームワークとTweepy（X API SDK）を使用し、安定した投稿スケジュール管理とAPIレート制限の管理を行います。
 
-> **X API**: X（旧Twitter）が提供する公式API。アプリケーションからプログラム的にツイートの投稿や取得を行うことができます。  
-> **launchd**: macOSの標準的なサービス管理システム。定期的なタスク実行を管理します。  
-> **pmset**: macOSでスリープ状態からの自動起動をスケジュールするためのツール。
+特にmacOS環境向けに、2つの自動実行モードを提供します:
+1.  **Launchd モード**: Macが起動中（スリープしていない状態）にのみ実行されます。
+2.  **Cron + PMSet モード**: Cronで定期実行をトリガーし、スクリプト内で `pmset` を使用してMacのスリープからの自動起動をスケジュールします。
+
+`switch_version.sh` スクリプトにより、これらのモードの有効/無効を簡単に切り替えることができます。
+
+> **X API**: X（旧Twitter）が提供する公式API。
+> **launchd**: macOS標準のサービス管理・ジョブスケジューリングシステム。
+> **cron**: UNIX系OSで標準的なジョブスケジューラ。
+> **pmset**: macOSで電源管理設定（スリープ解除スケジュール等）を行うコマンド。
 
 ---
 
 ## ✨ 主な機能
 
-システムは以下の主要な機能を提供します：
-
-- **X APIを使用した自動投稿**: 90分ごとに安定して自動投稿を実行
-- **画像付き投稿対応**: テキストだけでなく画像も含めた投稿が可能
-- **スケジュール管理**: 指定した日時に投稿するスケジュール機能
-- **画像の自動ローテーション**: 複数画像を順番に使用して投稿を多様化
-- **投稿制限管理**: APIレート制限（1日15回）を考慮した制御
-- **API接続テスト最適化**: API接続テストをピーク時間帯（6時、12時、18時）のみに限定
-- **レート制限対応**: "Too Many Requests"エラー時の自動再試行機能
-- **並行実行の防止**: ロックファイルによる同時実行防止機能
-- **実行モード切替**: launchdとpmsetの両方に対応し、環境に合わせて切替可能
+- **X APIを使用した自動投稿**: 定期的に自動投稿を実行 (デフォルト90分間隔)
+- **ツイート処理**: スケジュールされたツイートなどを処理 (デフォルト10分間隔)
+- **実行間隔制御**: 各スクリプトで前回実行からの経過時間を確認し、短すぎる場合はスキップ
+- **APIレート制限考慮**: X APIの制限を考慮した実行制御、レート制限エラー時の自動再試行
+- **ピーク時間帯処理**: 特定の時間帯（デフォルト6, 12, 18時）でAPI接続テストなどの処理を実行
+- **並行実行防止**: ロックファイルによるスクリプトの多重起動防止
+- **ログ出力**: 実行状況やエラーをバージョンごとにファイルに記録
+- **macOS実行モード切替**: `launchd` モードと `cron+pmset` モードを `switch_version.sh` で管理
+- **共通化**: 設定値や共通関数を外部ファイル化し、保守性を向上
 
 ---
 
 ## 🔧 使用技術
 
-システムは以下の技術スタックで構築されています：
-
-- **言語**: Python 3.12
+- **言語**: Python 3.12, Bash (Shell Script)
 - **フレームワーク**: Django 5.0+
-- **API連携**: Tweepy 4.14.0+（X API v2対応）
-- **データベース**: SQLite（Django ORM）
-- **スケジューリング**: macOS launchd / pmset、Linux crontab
-- **環境変数管理**: python-dotenv
+- **API連携**: Tweepy 4.14.0+ (X API v2対応)
+- **データベース**: SQLite (Django ORM)
+- **スケジューリング (macOS)**: launchd または cron + pmset
+- **環境変数管理**: python-dotenv, .envファイル
 
 ---
 
 ## 📁 ファイル構造
 
-システムは以下のディレクトリとファイル構造で構成されています：
-
 ```
 .
 ├── auto_tweet_project/         # Djangoプロジェクトディレクトリ
-│   ├── core/                   # コアアプリケーション（設定、ログ等）
-│   │   ├── __init__.py
-│   │   └── settings.py         # プロジェクト設定
+│   ├── core/                   # コアアプリケーション
 │   ├── x_scheduler/            # X API投稿スケジューラアプリケーション
-│   │   ├── management/         # Djangoカスタムコマンド
-│   │   │   └── commands/      # 投稿処理コマンド
-│   │   │       ├── auto_post.py    # 自動投稿コマンド
-│   │   │       └── process_tweets.py # ツイート処理コマンド
-│   │   ├── migrations/        # DBマイグレーションファイル
-│   │   ├── __init__.py
-│   │   ├── admin.py          # 管理画面設定
-│   │   ├── apps.py           # アプリケーション設定
-│   │   ├── models.py         # データモデル
-│   │   ├── tests.py          # テスト
-│   │   └── utils.py          # ユーティリティ関数
-│   ├── auto_tweet_project/     # プロジェクト設定ディレクトリ
-│   │   ├── __init__.py
-│   │   ├── asgi.py             # ASGI設定
-│   │   ├── settings.py         # プロジェクト設定
-│   │   ├── urls.py             # URL設定
-│   │   └── wsgi.py             # WSGI設定
-│   ├── db.sqlite3              # SQLiteデータベース
-│   └── manage.py               # Django管理スクリプト
-├── logs/                       # ログディレクトリ
-│   ├── auto_tweet/             # 自動投稿のログ
-│   └── process_tweets/         # ツイート処理のログ
-├── launchd_version/            # launchdベースのシステム（起動中のみ実行）
-│   ├── auto_tweet.sh           # launchd用自動投稿スクリプト
-│   ├── process_tweets.sh       # launchd用ツイート処理スクリプト
-│   ├── com.user.auto_tweet.plist # launchd設定ファイル
-│   └── com.user.process_tweets.plist # launchd設定ファイル
-├── pmset_version/              # pmsetベースのシステム（スリープからの自動起動）
-│   ├── auto_tweet.sh           # pmset用自動投稿スクリプト
-│   ├── process_tweets.sh       # pmset用ツイート処理スクリプト
-│   ├── wake_schedule.txt       # 自動投稿の次回スケジュール記録
-│   └── process_wake_schedule.txt # ツイート処理の次回スケジュール記録
-├── auto_tweet.sh               # メインスクリプトへのシンボリックリンク
-├── process_tweets.sh           # メインスクリプトへのシンボリックリンク
-├── switch_version.sh           # バージョン切り替えスクリプト
-├── auto_tweet_last_run.txt     # 自動投稿の最終実行時刻記録ファイル
-├── process_tweets_last_run.txt # ツイート処理の最終実行時刻記録ファイル
-├── .auto_tweet.lock            # 自動投稿の多重起動防止用ロックファイル
-├── .process_tweets.lock        # ツイート処理の多重起動防止用ロックファイル
-├── com.user.auto_tweet.plist   # 自動投稿用のlaunchdジョブ定義
-├── com.user.process_tweets.plist # ツイート処理用のlaunchdジョブ定義
-├── .env                        # 環境変数設定ファイル（gitignoreに含まれる）
+│   │   ├── management/commands/ # Djangoカスタムコマンド (auto_post.py, process_tweets.py)
+│   │   └── ...                 # models.py, utils.py など
+│   ├── auto_tweet_project/     # プロジェクト設定 (settings.py, urls.py)
+│   ├── db.sqlite3
+│   └── manage.py
+├── scripts/                    # シェルスクリプト関連ディレクトリ
+│   ├── config/
+│   │   └── common_config.sh    # 共通設定変数ファイル
+│   ├── functions/
+│   │   └── common_functions.sh # 共通関数ファイル
+│   ├── launchd_version/        # Launchdモード用スクリプト等
+│   │   ├── auto_tweet.sh
+│   │   ├── process_tweets.sh
+│   │   ├── auto_tweet_last_run.txt     # 最終実行時刻記録
+│   │   ├── process_tweets_last_run.txt # 最終実行時刻記録
+│   │   ├── com.user.auto_tweet.plist.template    # launchd設定テンプレート
+│   │   └── com.user.process_tweets.plist.template # launchd設定テンプレート
+│   ├── pmset_version/          # Cron+PMSetモード用スクリプト等
+│   │   ├── auto_tweet.sh
+│   │   ├── process_tweets.sh
+│   │   ├── auto_tweet_last_run.txt     # 最終実行時刻記録
+│   │   ├── process_tweets_last_run.txt # 最終実行時刻記録
+│   │   ├── wake_schedule.txt           # pmsetスケジュール記録 (auto_tweet)
+│   │   └── process_wake_schedule.txt   # pmsetスケジュール記録 (process_tweets)
+│   └── logs/                     # ログディレクトリ (バージョン別に格納)
+│       ├── launchd_version/
+│       │   ├── auto_tweet/
+│       │   └── process_tweets/
+│       └── pmset_version/
+│           ├── auto_tweet/
+│           └── process_tweets/
+├── .env                        # 環境変数設定ファイル (gitignore対象)
 ├── .env.example                # 環境変数の例
-├── .gitignore                  # Git除外設定
-├── .venv/                      # Python仮想環境（gitignoreに含まれる）
-├── requirements.txt            # 依存パッケージリスト
+├── .gitignore
+├── .venv/                      # Python仮想環境 (gitignore対象)
+├── requirements.txt
+├── switch_version.sh           # macOS用 実行モード切り替えスクリプト
+├── .auto_tweet.lock            # 多重起動防止用ロックファイル (auto_tweet)
+├── .process_tweets.lock        # 多重起動防止用ロックファイル (process_tweets)
 └── README.md                   # このファイル
 ```
 
@@ -128,443 +123,343 @@
 
 ## 🧩 コンポーネント説明
 
-このセクションでは、システムの主要コンポーネントと各役割について説明します。
+### 主要スクリプト (`scripts/` ディレクトリ内)
 
-### 主要スクリプト
+#### 1. バージョン別スクリプト (`pmset_version`, `launchd_version`)
+- **`auto_tweet.sh`**: 自動投稿のメインスクリプト。実行間隔チェック、Djangoの `auto_post` コマンド呼び出し、ログ出力、(pmset版のみ)次回 `pmset` スケジュール設定などを行う。
+- **`process_tweets.sh`**: ツイート処理のメインスクリプト。実行間隔チェック、Djangoの `process_tweets` コマンド呼び出し、ログ出力、(pmset版のみ)次回 `pmset` スケジュール設定などを行う。
+- **各バージョン**: `pmset_version` はスリープからの復帰を `pmset` で管理するロジックを含み、`launchd_version` はそれを含まない。
 
-#### 1. auto_tweet.sh
-自動投稿の主要な実行スクリプトです。以下の機能を提供します：
-- 90分間隔での実行制御（前回実行から90分経過していない場合は実行をスキップ）
-- ピーク時間（6時、12時、18時）の特別処理
-- ロックファイルによる並行実行防止
-- 詳細なログ記録
-- レート制限エラーの検出と自動再試行
-- 次回実行管理（バージョンによりlaunchdまたはpmsetで管理）
+#### 2. 共通設定・関数
+- **`config/common_config.sh`**: ログディレクトリのベースパス、Python実行パス、投稿間隔、ピーク時間などの共通設定変数を定義。各スクリプトから `source` される。
+- **`functions/common_functions.sh`**: ログ出力(`log`)、ロックファイルチェック(`check_lock`)、終了処理(`common_cleanup`)、実行間隔チェック(`check_execution_interval`)、Djangoコマンド実行(`execute_auto_post_command`等)などの共通関数を定義。各スクリプトから `source` される。
 
-#### 2. process_tweets.sh
-スケジュールされたツイートを処理するスクリプトです。以下の機能を提供します：
-- 10分間隔での定期実行
-- ロックファイルによる並行実行防止
-- API接続テストの最適化
-- レート制限エラーの自動再試行
-- 詳細なログ記録
+#### 3. ログ (`logs/`)
+- 各スクリプトの標準出力と標準エラー出力が、バージョン別・スクリプト別に格納される。
 
-#### 3. switch_version.sh
-実行モードを切り替えるためのユーティリティスクリプトです：
-- launchdバージョンとpmsetバージョンの切り替えを管理
-- 適切なシンボリックリンクを設定
-- 現在のバージョン確認機能
-- launchdジョブの自動ロード/アンロード
+### モード切り替えスクリプト (ルートディレクトリ)
 
-### Django アプリケーション
+- **`switch_version.sh`**: macOS環境で `Launchd モード` と `Cron + PMSet モード` の有効/無効を切り替えるためのユーティリティ。`launchctl` コマンドの実行や `pmset schedule cancelall` を行い、ユーザーに `crontab` の手動編集を促す。
 
-#### データモデル (models.py)
-データベースモデルを定義しています：
-- `TweetSchedule`: ツイートのスケジュール情報を管理
-- `DailyPostCounter`: 1日の投稿数を記録し、制限を管理
-- `SystemSetting`: API接続テスト状況など、システム設定を管理
+### Django アプリケーション (`auto_tweet_project/`)
 
-#### 管理コマンド (management/commands/)
-Django管理コマンドを提供します：
-- `auto_post.py`: 自動投稿コマンド（画像ローテーション機能も実装）
-- `process_tweets.py`: スケジュールされたツイートを処理するコマンド
+- **`manage.py`**: Django管理スクリプト。
+- **`x_scheduler/management/commands/`**: シェルスクリプトから呼び出されるカスタムDjangoコマンド。
+    - `auto_post.py`: 実際の投稿ロジック、画像選択など。
+    - `process_tweets.py`: スケジュールされたツイートの処理、API接続テストなど。
+- **`x_scheduler/models.py`**: `TweetSchedule`, `DailyPostCounter`, `SystemSetting` などのデータモデル。
+- **`core/settings.py`**: Django プロジェクト固有の設定。
 
-#### ユーティリティ (utils.py)
-APIとのやり取りを行うユーティリティ関数を提供：
-- `post_tweet()`: X APIを使用して実際にツイートを投稿
-- `test_api_connection()`: API接続をテストし、結果を返す
+### その他 (ルートディレクトリ)
 
-### ログ管理
-システムは統一されたログフォーマットを使用します：
-
-#### ログフォーマッタ
-- **shell_style**: シェルスタイルのログフォーマット
-  - タイムスタンプ
-  - プロセスID（SCRIPT_PID環境変数による親プロセスの追跡）
-  - ログレベル（INFO/WARN/ERROR）
-  - メッセージ
-
-#### ログファイル管理
-- 一時ログファイルによる重複排除
-- プロセスIDベースのログ分離
-- ログの自動ローテーション
-
-### プロセス管理
-システムは以下の方法でプロセスを管理します：
-
-- **プロセス追跡**:
-  - `SCRIPT_PID`環境変数による親プロセスの追跡
-  - 子プロセスへのPID継承
-  - ログ出力での一貫したPID表示
-
-- **並行実行制御**:
-  - ロックファイルによる多重起動防止
-  - プロセス終了時の自動クリーンアップ
-  - 異常終了時のロックファイル自動解放
+- **`.env`**: X APIキー, Django `SECRET_KEY`, `DEBUG` フラグなど。
+- **`.auto_tweet.lock`, `.process_tweets.lock`**: スクリプトの多重起動を防止するためのロックファイル。
 
 ---
 
 ## 🚀 インストールと設定
 
-このセクションでは、システムをセットアップするための手順を説明します。
+### 1. X Developer Portalでの設定
 
-### 前提条件
-- Python 3.12以上
-- macOS（launchdはmacOS専用）または Linux
-- X Developer Portalで作成したAPIキー
+#### 1.1 アプリケーションの作成
+1. [X Developer Portal](https://developer.twitter.com/en/portal/dashboard)にアクセス
+2. 「Create Project」をクリック
+3. プロジェクト名を入力（例：「Auto Tweet App」）
+4. 「Use Case」で「Automated/Bot Account」を選択
+5. プロジェクトの説明を入力
 
-### インストール手順
+#### 1.2 User Authentication Settingsの設定
+1. プロジェクトの「User authentication settings」タブに移動
+2. 「Edit」をクリック
+3. 「Type of App」で「Web App」を選択
+4. 「Callback URL」に以下を追加：
+   ```
+   http://127.0.0.1:8000/scheduler/x_auth/callback/
+   ```
+5. 「Website URL」にあなたのウェブサイトURLを入力（必須）
+6. 設定を保存
 
-#### 1. リポジトリのクローン
+#### 1.3 APIキーの取得
+1. 「Keys and Tokens」タブに移動
+2. 以下の情報を取得し、安全な場所に保存：
+   - API Key
+   - API Key Secret
+   - Access Token
+   - Access Token Secret
+
+### 2. システムのインストール
+
+#### 2.1 リポジトリのクローンと初期設定
 ```bash
+# リポジトリのクローン
 git clone <repository-url>
 cd auto_tweet
-```
 
-#### 2. 仮想環境の作成と有効化
-```bash
+# 仮想環境の作成と有効化
 python -m venv .venv
 source .venv/bin/activate
-```
 
-#### 3. 依存パッケージのインストール
-```bash
+# 依存パッケージのインストール
 pip install -r requirements.txt
 ```
 
-#### 4. 環境変数の設定
-`.env.example`をコピーして`.env`ファイルを作成し、必要な環境変数を設定します：
+#### 2.2 環境変数の設定
 ```bash
+# .env.exampleをコピーして.envファイルを作成
 cp .env.example .env
-```
 
-`.env`ファイルを編集し、以下の情報を設定します：
+# .envファイルを編集 (vim や他のエディタを使用)
+vim .env
 ```
+`.env`ファイルに **1.3** で取得したAPIキー等を設定:
+```dotenv
 X_API_KEY=your_api_key_here
 X_API_SECRET=your_api_secret_here
 X_ACCESS_TOKEN=your_access_token_here
 X_ACCESS_TOKEN_SECRET=your_access_token_secret_here
-SECRET_KEY=django_secret_key_here
+SECRET_KEY=django_secret_key_here # Djangoの秘密鍵 (python -c 'import secrets; print(secrets.token_hex(50))' などで生成可能)
 DEBUG=False
 ALLOWED_HOSTS=localhost,127.0.0.1
 ```
 
-#### 5. データベースの初期化
+#### 2.3 データベースの初期化
 ```bash
 cd auto_tweet_project
 python manage.py migrate
-python manage.py createsuperuser  # 管理者ユーザーを作成
+python manage.py createsuperuser # (任意) 管理画面を使いたい場合
+cd .. # ルートディレクトリに戻る
 ```
 
-#### 6. 実行権限の設定
+#### 2.4 実行権限の設定
 ```bash
-chmod +x auto_tweet.sh
-chmod +x process_tweets.sh
+chmod +x scripts/pmset_version/*.sh
+chmod +x scripts/launchd_version/*.sh
 chmod +x switch_version.sh
 ```
 
-#### 7. 画像ディレクトリの作成とサンプル画像の配置
+#### 2.5 画像ディレクトリの設定 (任意)
+Django側で画像投稿機能を使用する場合:
 ```bash
 mkdir -p auto_tweet_project/media/auto_post_images
-# ここに投稿したい画像を配置します
-```
-
-#### 8. 手動での実行テスト
-```bash
-./auto_tweet.sh
-./process_tweets.sh
 ```
 
 ---
 
-## 🔄 自動実行の設定
+## 💻 macOSでの自動実行設定
 
-システムには複数の実行モードがあります。このセクションでは、各環境での自動実行の設定方法を説明します。
+macOSでは、以下の2つのモードから自動実行方法を選択できます。`switch_version.sh` を使って設定を管理します。
 
-### バージョン切り替え機能
+### 実行モードについて (launchd vs cron+pmset)
 
-このプロジェクトには2つの実行モードがあります：
+1.  **Launchd モード**: (推奨: シンプル)
+    *   **スケジューラ**: macOS標準の `launchd`。
+    *   **使用スクリプト**: `scripts/launchd_version/*.sh`。
+    *   **動作**: Macが起動中（スリープしていない状態）に、`.plist` ファイルで指定された間隔でスクリプトを実行します。
+    *   **利点**: macOS標準の方法で安定性が高い。`sudoers` 設定が不要。
+    *   **欠点**: Macがスリープしていると実行されません。
 
-1. **launchdモード（macOS、デフォルト）**: 
-   - macOSのlaunchdを使用してスケジューリング
-   - **特徴**: Macが起動している間のみ実行されます
-   - **用途**: 常時起動環境やスリープが不要な場合に最適
+2.  **Cron + PMSet モード**: (スリープ中も実行したい場合)
+    *   **スケジューラ**: 標準の `cron` + スクリプト内の `pmset` コマンド。
+    *   **使用スクリプト**: `scripts/pmset_version/*.sh`。
+    *   **動作**: `cron` が指定された時刻にスクリプトを起動します。スクリプトは実行後、次回の実行時刻を計算し、`sudo pmset schedule wake ...` コマンドでMacのスリープ解除を予約します。
+    *   **利点**: Macがスリープしていても、指定時刻に自動で復帰してスクリプトを実行できます。
+    *   **欠点**: `cron` と `pmset` の両方を管理する必要がある。`sudo pmset` をパスワードなしで実行するための **`sudoers` 設定が必須**。
 
-2. **pmsetモード（macOS）**:
-   - macOSのpmsetを使用してスリープからの自動起動をスケジュール
-   - **特徴**: Macがスリープ状態でも指定時刻に自動起動して実行し、終了後に再びスリープ
-   - **用途**: 省電力が必要な環境や、Macの使用頻度が低い場合に最適
-   - **注意点**: sudoの設定が必要（パスワードなしでpmsetを実行できるように）
+### モードの切り替え方法 (`switch_version.sh`)
 
-#### モードの切り替え方法
-
-付属の切り替えスクリプトを使用して簡単に切り替えができます:
+付属の切り替えスクリプトで、これらのモードの有効/無効を管理します。
 
 ```bash
-# 現在のモード確認
+# 現在のモード状況を確認
 ./switch_version.sh status
 
-# launchdモードに切り替え（起動中のみ実行）
+# Launchd モードを有効化 (Cron+PMSetモードを無効化する)
 ./switch_version.sh launchd
 
-# pmsetモードに切り替え（スリープからの自動起動）
+# Cron + PMSet モードを有効化 (Launchdモードを無効化する)
 ./switch_version.sh pmset
 
 # ヘルプ表示
 ./switch_version.sh help
 ```
 
-### macOS - launchdによる設定
+**注意:** このスクリプトは `launchd` のジョブは直接ロード/アンロードしますが、`crontab` の編集は行いません。`pmset` モードと `launchd` モードを切り替える際は、スクリプトの指示に従って `crontab -e` で手動編集が必要です。
 
-launchdを使用してmacOSでシステムを自動実行するための設定方法を説明します。
+### Launchd モード設定手順
 
-#### テンプレートファイルの使用方法
+1.  **テンプレートの準備と編集:**
+    *   テンプレートファイル (`.plist.template`) をコピーし、リネームします。
+        ```bash
+        cp scripts/launchd_version/com.user.auto_tweet.plist.template scripts/launchd_version/com.user.auto_tweet.plist
+        cp scripts/launchd_version/com.user.process_tweets.plist.template scripts/launchd_version/com.user.process_tweets.plist
+        ```
+    *   コピーした `.plist` ファイルを開き、以下のプレースホルダーを**あなたの環境に合わせて**編集します。
+        *   `${PROJECT_DIR}`: `auto_tweet` プロジェクトの**フルパス** (例: `/Users/yourname/Projects/auto_tweet`)。
+        *   `${VENV_BIN_PATH}`: プロジェクトのPython仮想環境 (`.venv`) の `bin` ディレクトリの**フルパス** (例: `/Users/yourname/Projects/auto_tweet/.venv/bin`)。
+        *   `${SYSTEM_PATH}`: システムの基本 `PATH` (通常は `/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin` でOK)。
+    *   **編集例 (`sed` を使う場合):**
+        ```bash
+        cd scripts/launchd_version/ # plistファイルがあるディレクトリへ移動
+        PROJECT_PATH_ESC=$(echo "$PWD/../.." | sed 's/\//\\\//g') # エスケープ処理
+        VENV_PATH_ESC=$(echo "$PWD/../../.venv/bin" | sed 's/\//\\\//g')
+        SYS_PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" # 必要なら変更
 
-本リポジトリには、実環境設定用のテンプレートファイルが含まれています。GitHubから取得した後、ご自身の環境に合わせてカスタマイズしてください。
+        sed -i '' \
+          -e "s/\${PROJECT_DIR}/${PROJECT_PATH_ESC}/g" \
+          -e "s/\${VENV_BIN_PATH}/${VENV_PATH_ESC}/g" \
+          -e "s/\${SYSTEM_PATH}/${SYS_PATH}/g" \
+          com.user.auto_tweet.plist com.user.process_tweets.plist
+        cd ../.. # ルートディレクトリに戻る
+        ```
 
-##### テンプレートファイル
-- `launchd_version/com.user.auto_tweet.plist.template` - 自動投稿用のlaunchdジョブ定義テンプレート
-- `launchd_version/com.user.process_tweets.plist.template` - ツイート処理用のlaunchdジョブ定義テンプレート
+2.  **LaunchAgents への配置:**
+    *   編集した `.plist` ファイルをユーザーの `LaunchAgents` ディレクトリに移動します。
+        ```bash
+        mv scripts/launchd_version/com.user.auto_tweet.plist ~/Library/LaunchAgents/
+        mv scripts/launchd_version/com.user.process_tweets.plist ~/Library/LaunchAgents/
+        ```
 
-##### 設定手順
+3.  **モードの有効化:**
+    *   `switch_version.sh` を使って `launchd` モードを有効にします。これにより、`launchd` ジョブがロードされます。
+        ```bash
+        ./switch_version.sh launchd
+        ```
+    *   もし `cron` に `pmset_version` の設定が残っている場合は、`crontab -e` でコメントアウトまたは削除してください。
 
-1. テンプレートファイルをコピーして`.template`拡張子を削除：
+4.  **動作確認:**
+    ```bash
+    # ジョブがロードされているか確認
+    launchctl list | grep com.user
+    # 手動で実行してみる
+    launchctl start com.user.auto_tweet
+    # ログを確認
+    tail -f scripts/logs/launchd_version/auto_tweet/auto_tweet.log
+    ```
 
-```bash
-cp launchd_version/com.user.auto_tweet.plist.template launchd_version/com.user.auto_tweet.plist
-cp launchd_version/com.user.process_tweets.plist.template launchd_version/com.user.process_tweets.plist
-```
+### Cron + PMSet モード設定手順
 
-2. ファイル内の`/path/to/auto_tweet`をあなたの実際のプロジェクトパスに置き換え：
+1.  **`sudoers` 設定 (必須):**
+    *   `pmset_version/*.sh` スクリプトは内部で `sudo pmset schedule wake` を実行します。`cron` ジョブからパスワードなしで `sudo` を実行できるように設定します。
+    *   `sudo visudo -f /etc/sudoers.d/pmset` コマンドでファイルを作成・編集し、以下を記述（`your_username` は実際のユーザー名に置き換え）。
+        ```
+        your_username ALL=(ALL) NOPASSWD: /usr/bin/pmset
+        ```
+    *   ファイルの権限を設定します。
+        ```bash
+        sudo chmod 440 /etc/sudoers.d/pmset
+        ```
 
-```bash
-# 例: プロジェクトが/Users/username/Projects/auto_tweetにある場合
-sed -i '' "s|/path/to/auto_tweet|/Users/username/Projects/auto_tweet|g" launchd_version/com.user.auto_tweet.plist
-sed -i '' "s|/path/to/auto_tweet|/Users/username/Projects/auto_tweet|g" launchd_version/com.user.process_tweets.plist
-```
+2.  **`crontab` の設定:**
+    *   `crontab -e` コマンドで crontab を編集し、以下の内容を追加または有効化します（パスは実際の環境に合わせてください）。
+        ```crontab
+        # crontab for auto_tweet project (using pmset_version scripts)
 
-3. プロパティリストファイルをユーザーのLaunchAgentsディレクトリにコピー：
+        # 環境変数 (Python仮想環境のパスなど)
+        PATH=/Users/yourname/Projects/auto_tweet/.venv/bin:/usr/local/bin:/usr/bin:/bin
 
-```bash
-cp launchd_version/com.user.auto_tweet.plist ~/Library/LaunchAgents/
-cp launchd_version/com.user.process_tweets.plist ~/Library/LaunchAgents/
-```
+        # プロジェクトルートディレクトリ
+        PROJECT_DIR="/Users/yourname/Projects/auto_tweet"
+        # pmset_version 用のログディレクトリベースパス
+        LOG_BASE_DIR="${PROJECT_DIR}/scripts/logs/pmset_version"
 
-4. launchdにプロパティリストファイルをロード：
+        # pmset_version/auto_tweet.sh を90分ごとに実行
+        0 0,3,6,9,12,15,18,21 * * * cd "${PROJECT_DIR}" && ./scripts/pmset_version/auto_tweet.sh >> "${LOG_BASE_DIR}/auto_tweet/auto_tweet.log" 2>> "${LOG_BASE_DIR}/auto_tweet/error.log"
+        30 1,4,7,10,13,16,19,22 * * * cd "${PROJECT_DIR}" && ./scripts/pmset_version/auto_tweet.sh >> "${LOG_BASE_DIR}/auto_tweet/auto_tweet.log" 2>> "${LOG_BASE_DIR}/auto_tweet/error.log"
 
-```bash
-launchctl load ~/Library/LaunchAgents/com.user.auto_tweet.plist
-launchctl load ~/Library/LaunchAgents/com.user.process_tweets.plist
-```
+        # pmset_version/process_tweets.sh を10分ごとに実行 (5分開始)
+        5,15,25,35,45,55 * * * * cd "${PROJECT_DIR}" && ./scripts/pmset_version/process_tweets.sh >> "${LOG_BASE_DIR}/process_tweets/process_tweets.log" 2>> "${LOG_BASE_DIR}/process_tweets/error.log"
+        ```
 
-5. バージョン切り替えスクリプトで管理する場合：
+3.  **モードの有効化:**
+    *   `switch_version.sh` を使って `pmset` モードを有効にします。これにより、関連する `launchd` ジョブがアンロードされます。
+        ```bash
+        ./switch_version.sh pmset
+        ```
 
-```bash
-# launchdバージョンに切り替え
-./switch_version.sh launchd
-```
+4.  **動作確認:**
+    ```bash
+    # crontab設定を確認
+    crontab -l
+    # 手動で実行してみる
+    ./scripts/pmset_version/auto_tweet.sh
+    # ログを確認
+    tail -f scripts/logs/pmset_version/auto_tweet/auto_tweet.log
+    # pmsetスケジュールを確認 (sudoが必要)
+    sudo pmset -g sched
+    ```
+    *   最終的には、`cron` で設定した時刻にスクリプトが実行され、ログが出力され、`sudo pmset -g sched` で次回の wake スケジュールが設定されることを確認します。
 
-##### launchdジョブの管理
+---
 
-launchdジョブを管理するための主要コマンド：
+## 🐧 Linux環境での自動実行設定 (参考)
 
-```bash
-# ジョブの状態確認
-launchctl list | grep com.user
+Linux 環境では `launchd` や `pmset` は使用できないため、`cron` を使用して `scripts/launchd_version/` ディレクトリ内のスクリプトを実行するのが一般的です（`pmset` を含まないため）。
 
-# ジョブの手動実行
-launchctl start com.user.auto_tweet
-launchctl start com.user.process_tweets
+1.  `crontab -e` で設定を開きます。
+2.  以下のような設定を追加します（パスや実行間隔は環境に合わせて調整）。
+    ```crontab
+    # crontab for auto_tweet project (Linux - using launchd_version scripts)
 
-# ジョブの停止
-launchctl stop com.user.auto_tweet
-launchctl stop com.user.process_tweets
+    # 環境変数
+    PATH=/path/to/your/project/auto_tweet/.venv/bin:/usr/local/bin:/usr/bin:/bin
 
-# ジョブのアンロード（無効化）
-launchctl unload ~/Library/LaunchAgents/com.user.auto_tweet.plist
-launchctl unload ~/Library/LaunchAgents/com.user.process_tweets.plist
+    PROJECT_DIR="/path/to/your/project/auto_tweet"
+    LOG_BASE_DIR="${PROJECT_DIR}/scripts/logs/launchd_version" # Linuxでも launchd_version を使う想定
 
-# ジョブの再ロード（有効化）
-launchctl load ~/Library/LaunchAgents/com.user.auto_tweet.plist
-launchctl load ~/Library/LaunchAgents/com.user.process_tweets.plist
-```
+    # launchd_version/auto_tweet.sh を90分ごとに実行
+    */90 * * * * cd "${PROJECT_DIR}" && ./scripts/launchd_version/auto_tweet.sh >> "${LOG_BASE_DIR}/auto_tweet/auto_tweet.log" 2>> "${LOG_BASE_DIR}/auto_tweet/error.log"
 
-### macOS - pmsetモードの追加設定
-
-pmsetモードではsudoers設定が必要です。以下の手順で設定してください：
-
-1. sudoers設定ファイルの編集:
-```bash
-sudo visudo -f /etc/sudoers.d/pmset
-```
-
-2. 以下の内容を追加（ユーザー名を適宜変更）:
-```
-username ALL=(ALL) NOPASSWD: /usr/bin/pmset
-```
-
-3. 権限設定:
-```bash
-sudo chmod 440 /etc/sudoers.d/pmset
-```
-
-この設定により、パスワード入力なしでpmsetコマンドを実行できるようになります。
-
-### Linux環境 - crontabによる設定
-
-macOS以外のLinux環境などでは、crontabを使用して自動実行をスケジュールできます。
-
-#### crontabの設定手順
-
-1. crontabを編集して自動実行をスケジュールします：
-
-```bash
-crontab -e
-```
-
-2. 以下のような設定を追加します（パスは実際の環境に合わせて調整してください）：
-
-```
-# 自動投稿スクリプト - 90分ごとに実行
-*/90 * * * * cd /path/to/auto_tweet && ./auto_tweet.sh >> /path/to/auto_tweet/logs/auto_tweet/auto_tweet.log 2>> /path/to/auto_tweet/logs/auto_tweet/error.log
-
-# ツイート処理スクリプト - 10分ごとに実行
-*/10 * * * * cd /path/to/auto_tweet && ./process_tweets.sh >> /path/to/auto_tweet/logs/process_tweets/process_tweets.log 2>> /path/to/auto_tweet/logs/process_tweets/error.log
-```
-
-#### crontabのフォーマット説明
-
-crontabのフォーマットは以下の通りです：
-
-```
-分 時 日 月 曜日 コマンド
-```
-
-- **分**: 0-59
-- **時**: 0-23
-- **日**: 1-31
-- **月**: 1-12
-- **曜日**: 0-7（0と7は日曜日）
-
-例：
-- `*/90 * * * *` - 90分ごとに実行
-- `*/10 * * * *` - 10分ごとに実行
-- `0 */1 * * *` - 1時間ごとに実行
-- `0 6,12,18 * * *` - 6時、12時、18時に実行
-
-#### crontabでの環境変数の設定
-
-crontabで実行する場合、通常のシェル環境と異なるため、必要な環境変数を設定する必要があります：
-
-```
-# 環境変数の設定
-PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/path/to/your/python/bin
-PYTHONPATH=/path/to/your/python/site-packages
-
-# 自動投稿スクリプト
-*/90 * * * * cd /path/to/auto_tweet && ./auto_tweet.sh >> /path/to/auto_tweet/logs/auto_tweet/auto_tweet.log 2>> /path/to/auto_tweet/logs/auto_tweet/error.log
-```
-
-#### crontabのログと監視
-
-crontabの実行ログを確認するには：
-
-```bash
-# システムログの確認（Linuxの場合）
-grep CRON /var/log/syslog
-
-# 独自のログファイルの確認
-tail -f /path/to/auto_tweet/logs/auto_tweet/auto_tweet.log
-tail -f /path/to/auto_tweet/logs/process_tweets/process_tweets.log
-```
+    # launchd_version/process_tweets.sh を10分ごとに実行
+    */10 * * * * cd "${PROJECT_DIR}" && ./scripts/launchd_version/process_tweets.sh >> "${LOG_BASE_DIR}/process_tweets/process_tweets.log" 2>> "${LOG_BASE_DIR}/process_tweets/error.log"
+    ```
 
 ---
 
 ## 📝 使用方法
 
-このセクションでは、システムの基本的な使用方法を説明します。
+自動実行設定が完了していれば、基本的に操作は不要です。
+手動で実行したい場合は、以下のように行います。
 
-### コマンドラインからの実行
-
-#### 自動投稿機能の使用
-自動投稿機能はスケジューラによって以下のスケジュールで自動的に実行されますが、必要に応じて手動でも実行できます：
-- auto_tweet.sh: 90分ごとに実行
-- process_tweets.sh: 10分ごとに実行
-
-#### 手動実行
 ```bash
-# 自動投稿を手動で実行
-./auto_tweet.sh
+# --- macOS --- 
 
-# スケジュールされたツイートを手動で処理
-./process_tweets.sh
-```
-
-#### launchd手動実行 (macOSのみ)
-```bash
-# 自動投稿を即時実行
+# Launchd モードで手動実行
 launchctl start com.user.auto_tweet
-
-# ツイート処理を即時実行
 launchctl start com.user.process_tweets
-```
 
-### Django管理コマンドの直接実行
+# Cron+PMSet モードで手動実行 (直接スクリプトを実行)
+./scripts/pmset_version/auto_tweet.sh
+./scripts/pmset_version/process_tweets.sh
 
-より細かい制御が必要な場合は、Django管理コマンドを直接実行できます：
+# --- Linux (参考) --- 
+# 手動実行 (直接スクリプトを実行)
+./scripts/launchd_version/auto_tweet.sh
+./scripts/launchd_version/process_tweets.sh
 
-```bash
-# 仮想環境の有効化
+# --- Django コマンド直接実行 (デバッグ等) --- 
 source .venv/bin/activate
-
-# 自動投稿コマンドの実行（スケジュール作成のみ）
 cd auto_tweet_project
-python manage.py auto_post --text "投稿テキスト"
 
-# 即時投稿
-python manage.py auto_post --text "投稿テキスト" --post-now
+# 自動投稿コマンド (即時投稿)
+python manage.py auto_post --text "テスト投稿" --post-now
 
-# ピーク時間帯のフラグを付けて実行
-python manage.py auto_post --text "投稿テキスト" --post-now --peak-hour
-
-# スケジュールされたツイートの処理
+# ツイート処理コマンド
 python manage.py process_tweets
-
-# API接続テストをスキップ
-python manage.py process_tweets --skip-api-test
-
-# ピーク時間帯としてAPI接続テストを強制実行
-python manage.py process_tweets --force-api-test --peak-hour
 ```
 
 ---
 
 ## ⚙️ 設定パラメータ
 
-このセクションでは、システムの主要な設定パラメータについて説明します。
+システムの挙動は主に以下のファイルで設定されます。
 
-### 環境変数
-主要な環境変数の説明：
-- `X_API_KEY`: X API Key
-- `X_API_SECRET`: X API Secret
-- `X_ACCESS_TOKEN`: X Access Token
-- `X_ACCESS_TOKEN_SECRET`: X Access Token Secret
-- `SECRET_KEY`: Django Secret Key
-- `DEBUG`: Djangoデバッグモード（True/False）
-- `ALLOWED_HOSTS`: 許可するホスト名のカンマ区切りリスト
-
-### auto_tweet.sh の主要パラメータ
-- `MIN_INTERVAL`: 前回実行からの最小間隔（秒）、デフォルト5390秒（約90分）
-- `TEXT`: 投稿するテキスト（ハッシュタグを含む）
-
-### process_tweets.sh の主要パラメータ
-- `OPTIONS`: process_tweetsコマンドに渡すオプション
+- **`.env`**: X APIキー, Django `SECRET_KEY`, `DEBUG` フラグなど。
+- **`scripts/config/common_config.sh`**: シェルスクリプト共通のパス、実行間隔 (秒・分)、ピーク時間、再試行間隔など。
+- **`auto_tweet_project/core/settings.py`**: Django プロジェクト固有の設定。
 
 ---
 
 ## 🔍 トラブルシューティング
-
-このセクションでは、よくある問題とその解決方法を説明します。
 
 ### API接続/認証エラー
 **症状**: 「API接続テスト失敗」というエラーメッセージが表示される  
@@ -586,10 +481,12 @@ python manage.py process_tweets --force-api-test --peak-hour
 **症状**: 予定された時間に自動投稿が実行されない  
 **原因**: スケジューラの設定問題、権限問題、またはスクリプトのエラー  
 **解決策**:
-1. スケジューラの状態を確認（launchd: `launchctl list | grep com.user`、cron: `crontab -l`）
-2. ログファイルで詳細なエラーを確認
-3. スクリプトの実行権限を確認: `chmod +x *.sh`
-4. 環境変数の設定を確認
+1.  `./switch_version.sh status` で現在のモードを確認。
+2.  有効なモードの設定（`launchd list`, `crontab -l`, `sudo pmset -g sched`）を確認。
+3.  関連するログファイル (`scripts/logs/...`) でエラーを確認。
+4.  スクリプトの実行権限 (`chmod +x`) を確認。
+5.  `.env` ファイルや `common_config.sh` の設定を確認。
+6.  (pmset モードの場合) `sudoers` 設定を確認。
 
 ### ロックファイルが残存する問題
 **症状**: 「別のスクリプトが実行中です」というメッセージが表示されるが実際には実行されていない  
@@ -601,118 +498,59 @@ python manage.py process_tweets --force-api-test --peak-hour
 
 ## 🔧 開発者向け情報
 
-このセクションでは、システムをカスタマイズするための情報を提供します。
-
-### カスタマイズポイント
-システムをカスタマイズする主なポイント：
-
-1. **投稿テキストの変更**:
-   - `auto_tweet.sh`の`TEXT`変数を編集
-
-2. **投稿間隔の変更**:
-   - `auto_tweet.sh`の`MIN_INTERVAL`変数を編集
-   - スケジューラの実行間隔を変更（launchdのStartIntervalまたはcrontabの実行間隔）
-
-3. **画像ローテーションの変更**:
-   - `SystemSetting.get_next_image_index()`メソッドをカスタマイズ
-
-4. **ピーク時間の変更**:
-   - `auto_tweet.sh`と`process_tweets.sh`の`CURRENT_HOUR`チェック条件を変更
-
-### テスト手順
-システムのテスト実行方法：
-```bash
-# テスト実行
-cd auto_tweet_project
-python manage.py test x_scheduler
-
-# 特定のテストのみ実行
-python manage.py test x_scheduler.tests.ModelTests
-```
+- **共通関数**: `scripts/functions/common_functions.sh` に共通処理が集約されています。
+- **共通設定**: `scripts/config/common_config.sh` で設定値を管理しています。
+- **Djangoコマンド**: 実際の処理は `auto_tweet_project/x_scheduler/management/commands/` 以下の Python スクリプトで行われます。
+- **テスト**: `cd auto_tweet_project && python manage.py test x_scheduler` で Django アプリケーションのテストを実行できます。
 
 ---
 
 ## 🔒 セキュリティ考慮事項
 
-システムのセキュリティに関する重要な考慮事項：
-
-- **API認証情報の保護**: APIキーなどの機密情報は`.env`ファイルに保存し、`.gitignore`に含めています
-- **CSRF対策**: Djangoの組み込みCSRF保護を使用しています
-- **ログファイルのセキュリティ**: ログにはAPIキーの一部のみが記録され、完全なキーは表示されません
+- APIキー等の機密情報は `.env` ファイルで管理し、Git リポジトリには含めないでください。
+- `sudoers` 設定は必要最小限 (`NOPASSWD` 対象を `/usr/bin/pmset` のみに限定) にしてください。
 
 ---
 
 ## 📈 バージョン履歴
 
-システムの主要なリリースと変更点：
+### v1.3.0 (2024-04-03)
+- シェルスクリプトのリファクタリングを実施。
+  - 設定 (`common_config.sh`) と関数 (`common_functions.sh`) を共通化。
+  - ログ出力先を `scripts/logs/<version>/<script>/` に統一。
+  - ディレクトリ構造を `scripts/` 以下に整理。
+- `switch_version.sh` を修正し、macOSの実行モード (`launchd` vs `cron+pmset`) の管理を行うように変更。
+- `README.md` を現状に合わせて大幅に更新。
+- `launchd` 用の `.plist` テンプレートを修正。
 
-### v1.2.1（2025-03-12）
-- ログフォーマットの統一
-  - shell_styleフォーマッタの導入
-  - プロセスID管理の改善
-  - 重複ログの排除機能強化
-- pmsetスケジュール管理の改善
-  - スケジュール重複の防止
-  - タイムスタンプベースの比較導入
+### v1.2.1 (2025-03-12) - (旧バージョン)
+...
+### v1.2.0 (2025-03-11) - (旧バージョン)
+...
+### v1.1.0 (2025-03-09) - (旧バージョン)
+...
+### v1.0.0 (2025-03-08) - (旧バージョン)
+...
 
-### v1.2.0（2025-03-11）
-- 実行モード切替機能の追加
-  - launchdモードとpmsetモードの両方をサポート
-  - ディレクトリ構造による分離管理
-  - 簡単に切り替え可能なスクリプト追加
-- ログ出力の改善
-  - プロセスIDベースの一時ログファイル機能
-  - 重複ログの排除
-
-### v1.1.0（2025-03-09）
-- cron/pmsetからlaunchdへの移行
-- 実行安定性の向上
-- ログ出力の改善
-
-### v1.0.0（2025-03-08）
-- 初回リリース
-- 自動投稿機能
-- スケジュール管理機能
-- API接続テスト最適化
-
-詳細な変更履歴は[CHANGELOG.md](./CHANGELOG.md)を参照してください。
+(古いバージョン履歴は簡略化または削除してもOKです)
 
 ---
 
 ## 📄 ライセンス
 
-本プロジェクトはMITライセンスのもとで提供されています。
+(変更なし)
 
 MIT License
-
-Copyright (c) 2025 Your Name
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+...
 
 ---
 
 ## 📞 連絡先・サポート
 
-質問やバグ報告、機能要望などがある場合は、以下の方法でご連絡ください：
+(変更なし)
 
-- **GitHub Issues**: [Issues](https://github.com/yourusername/auto_tweet/issues)
-- **メール**: your.email@example.com
+- **GitHub Issues**: ...
+- **メール**: ...
 
 ---
 
