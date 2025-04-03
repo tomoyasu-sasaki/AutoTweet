@@ -7,13 +7,18 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('x_scheduler', '0001_initial'),
+        ("x_scheduler", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='tweetschedule',
-            name='image',
-            field=models.ImageField(blank=True, null=True, upload_to=x_scheduler.models.get_image_path, verbose_name='画像'),
+            model_name="tweetschedule",
+            name="image",
+            field=models.ImageField(
+                blank=True,
+                null=True,
+                upload_to=x_scheduler.models.get_image_path,
+                verbose_name="画像",
+            ),
         ),
     ]

@@ -12,10 +12,17 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from pathlib import Path
 import os
-from dotenv import load_dotenv
+# import logging.handlers  # F401 未使用のため削除
+# from dotenv import load_dotenv, find_dotenv # 不要になったデバッグ用importを削除
 
 # .envファイルを読み込む
-load_dotenv()
+# dotenv_path = find_dotenv() # 不要になったデバッグ用コードを削除
+# print(f"*** Finding .env at: {dotenv_path} ***") # 不要になったデバッグ用コードを削除
+# loaded = load_dotenv(dotenv_path=dotenv_path, verbose=True, override=True) # 不要になったデバッグ用コードを削除
+# print(f"*** load_dotenv executed: {loaded} ***") # 不要になったデバッグ用コードを削除
+# デバッグ用コードを削除し、元のload_dotenv()呼び出しに戻す (ただし、override=True は有用な場合があるので残しても良い)
+from dotenv import load_dotenv
+load_dotenv(override=True) # override=True は残すことを推奨
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,64 +32,82 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-%14n8s685l#nz+5ou%h@n8zx2*peo*7)xl_f=v8^p2gg(#tj60')
+if not (SECRET_KEY := os.getenv("SECRET_KEY")):
+    raise ValueError(
+        "SECRET_KEY environment variable is not set. "
+        "Please set it in your .env file or environment variables."
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+# DEBUG = os.getenv("DEBUG", "False") == "True" # 元のコード
+DEBUG = os.getenv("DEBUG", "False").lower() == "true" # 小文字に変換して比較するように修正
+# print(f"*** DEBUG setting is: {DEBUG} ***") # 不要になったデバッグ用print文を削除
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+# Empty list by default to force explicit setting in production
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",") if os.getenv("ALLOWED_HOSTS") else []
+
+# Security settings
+SECURE_SSL_REDIRECT = not DEBUG  # Force HTTPS in production
+SESSION_COOKIE_SECURE = not DEBUG  # Only send cookies over HTTPS
+CSRF_COOKIE_SECURE = not DEBUG  # Only send CSRF token over HTTPS
+SECURE_BROWSER_XSS_FILTER = True  # Enable XSS filtering
+SECURE_CONTENT_TYPE_NOSNIFF = True  # Prevent MIME type sniffing
+X_FRAME_OPTIONS = "DENY"  # Prevent clickjacking
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # Enable HSTS in production (1 year)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG  # Include subdomains in HSTS
+SECURE_HSTS_PRELOAD = not DEBUG  # Allow preloading of HSTS
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'x_scheduler',  # 追加したx_schedulerアプリケーション
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "x_scheduler.apps.XSchedulerConfig",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware", # コメントアウトを解除して元に戻す
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'core.urls'
+ROOT_URLCONF = "core.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],  # templatesディレクトリを追加
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],  # templatesディレクトリを追加
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'core.wsgi.application'
+WSGI_APPLICATION = "core.wsgi.application"
 
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
 
@@ -92,16 +117,16 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -109,9 +134,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
-LANGUAGE_CODE = 'ja'  # 日本語に変更
+LANGUAGE_CODE = "ja"  # 日本語に変更
 
-TIME_ZONE = 'Asia/Tokyo'  # 日本時間に変更
+TIME_ZONE = "Asia/Tokyo"  # 日本時間に変更
 
 USE_I18N = True
 
@@ -121,64 +146,68 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = 'static/'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_URL = "static/"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 
 # メディアファイル設定
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # X API設定
-X_API_KEY = os.getenv('X_API_KEY', '')
-X_API_SECRET = os.getenv('X_API_SECRET', '')
-X_ACCESS_TOKEN = os.getenv('X_ACCESS_TOKEN', '')
-X_ACCESS_TOKEN_SECRET = os.getenv('X_ACCESS_TOKEN_SECRET', '')
+X_API_KEY = os.getenv("X_API_KEY", "")
+X_API_SECRET = os.getenv("X_API_SECRET", "")
+X_ACCESS_TOKEN = os.getenv("X_ACCESS_TOKEN", "")
+X_ACCESS_TOKEN_SECRET = os.getenv("X_ACCESS_TOKEN_SECRET", "")
+
+# === アプリケーション固有設定 ===
+# 1日の最大投稿数 (X API v2 Free Plan: 50 posts / 24 hours per app, 50 posts / 24 hours per user)
+# 安全マージンを見て少なめに設定
+MAX_DAILY_POSTS_PER_USER = int(os.getenv("MAX_DAILY_POSTS", "16"))
 
 # OAuth2コールバックURL
-X_CALLBACK_URL = 'http://127.0.0.1:8000/x_auth/callback/'
+# .env から読み込むように変更 (デフォルトは開発用URL)
+X_CALLBACK_URL = os.getenv("X_CALLBACK_URL", "http://127.0.0.1:8000/x_auth/callback/")
 
 # ロギング設定
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
-            'style': '{',
-        },
-        'simple': {
-            'format': '{levelname} {message}',
-            'style': '{',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} [{process:d}:{thread:d}] {module} {message}",
+            "style": "{",
         },
     },
-    'handlers': {
-        'console': {
-            'level': 'DEBUG',
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+    "handlers": {
+        "console": {
+            "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"),
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
         },
-        'file': {
-            'level': 'DEBUG',
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'debug.log',
-            'formatter': 'verbose',
+        "file": {  # RotatingFileHandler に変更
+            "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"),
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": BASE_DIR / "debug.log",
+            "formatter": "verbose",
+            "maxBytes": 1024 * 1024 * 5,  # 5MB
+            "backupCount": 3,  # 3世代まで保持
         },
     },
-    'loggers': {
-        'django': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': True,
+    "loggers": {
+        "django": {
+            "handlers": ["console", "file"],
+            "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"),
+            "propagate": False,
         },
-        'x_scheduler': {
-            'handlers': ['console', 'file'],
-            'level': 'DEBUG',
-            'propagate': True,
+        "x_scheduler": {
+            "handlers": ["console", "file"],
+            "level": os.getenv("APP_LOG_LEVEL", "WARNING"),
+            "propagate": True,
         },
     },
 }
