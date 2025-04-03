@@ -93,7 +93,7 @@ class DailyPostCounter(models.Model):
     @classmethod
     def get_today_counter(cls):
         """本日のカウンターを取得または作成"""
-        today = timezone.now().date()
+        today = timezone.localdate()
         counter, created = cls.objects.get_or_create(
             date=today, defaults={"post_count": 0}
         )

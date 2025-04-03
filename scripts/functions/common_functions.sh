@@ -195,15 +195,29 @@ execute_process_tweets_command() {
 # Returns: 0 on success, non-zero on failure
 execute_auto_post_command() {
     local peak_hour_option="$1" # " --peak-hour" or ""
-    local cmd="${PYTHON_BIN} manage.py auto_post --text \"${DEFAULT_TWEET_TEXT}\" --interval=${POST_INTERVAL_MINUTES} --post-now${peak_hour_option}"
     local success=false
     local exit_code
 
-    log "INFO" "自動投稿コマンドを実行します: ${cmd}"
+    # コマンドと引数を配列で準備
+    local cmd_array=(
+        "${PYTHON_BIN}" \
+        manage.py \
+        auto_post \
+        --text \
+        "${DEFAULT_TWEET_TEXT}" \
+        --interval="${POST_INTERVAL_MINUTES}" \
+        --post-now
+    )
+    # ピーク時間オプションを追加 (スペースは不要)
+    if [[ -n "$peak_hour_option" ]]; then
+        cmd_array+=(--peak-hour)
+    fi
+
+    log "INFO" "自動投稿コマンドを実行します: ${cmd_array[*]}" # 配列の内容を表示
     log "DEBUG" "===== Pythonコマンド(auto_post)出力開始 ====="
 
-    # 初回実行
-    if output=$(cd "${PROJECT_DIR}" && eval "$cmd" 2>&1); then
+    # 初回実行 (eval を使わず直接実行)
+    if output=$(cd "${PROJECT_DIR}" && "${cmd_array[@]}" 2>&1); then
         exit_code=0
         log "INFO" "自動投稿が完了しました"
         while IFS= read -r line; do log "DEBUG" "[Python Output] $line"; done <<< "$output"
@@ -218,11 +232,10 @@ execute_auto_post_command() {
             log "WARN" "レート制限エラーが検出されました。${RATE_LIMIT_RETRY_WAIT_SECONDS}秒後に再実行します..."
             sleep "${RATE_LIMIT_RETRY_WAIT_SECONDS}"
 
-            local retry_cmd="$cmd" # 再試行コマンドは初回と同じ
-            log "INFO" "再実行中: ${retry_cmd}"
+            log "INFO" "再実行中: ${cmd_array[*]}"
             log "DEBUG" "===== 再試行コマンド出力開始 ====="
 
-            if retry_output=$(cd "${PROJECT_DIR}" && eval "$retry_cmd" 2>&1); then
+            if retry_output=$(cd "${PROJECT_DIR}" && "${cmd_array[@]}" 2>&1); then
                 local retry_exit_code=0
                 log "INFO" "再実行が成功しました"
                 while IFS= read -r line; do log "DEBUG" "[Python Retry Output] $line"; done <<< "$retry_output"
